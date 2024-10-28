@@ -1,0 +1,286 @@
+#CryptoVisualizer ayuda a los usuarios a comprender y visualizar cómo funcionan diversos algoritmos criptográficos
+
+#Por David Ruiz
+#Puedes usar mi script siempre y cuando me des créditos en mis redes sociales @viajatech
+#Se agredecido y dale estrella a este repositorio, gracias! 
+
+#Instala las dependencias primero:
+#pip install cryptography==3.4.8
+#pip install PyQt5 pyqtgraph
+
+
+import sys
+from PyQt5.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QLabel, QLineEdit, QPushButton,
+    QComboBox, QTextEdit, QVBoxLayout, QHBoxLayout, QMessageBox
+)
+from PyQt5.QtGui import QFont
+from PyQt5.QtCore import Qt
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import rsa, padding as asym_padding
+from cryptography.hazmat.primitives.ciphers import Cipher, modes
+from cryptography.hazmat.primitives.ciphers import algorithms
+import pyqtgraph as pg
+import os
+import math
+import collections
+
+class CryptoVisualizer(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("CryptoVisualizer by Viaja Tech")
+        self.setGeometry(100, 100, 800, 600)
+        self.setStyleSheet("background-color: #1e1e1e; color: #dcdcdc;")
+        self.initUI()
+
+    def initUI(self):
+        font = QFont('Arial', 12)
+
+        # Widgets principales
+        self.algorithm_label = QLabel("Seleccione el algoritmo:")
+        self.algorithm_label.setFont(font)
+
+        self.algorithm_combo = QComboBox()
+        self.algorithm_combo.addItems(["AES", "DES", "Blowfish", "ChaCha20", "RSA", "SHA-256", "SHA-1", "MD5"])
+        self.algorithm_combo.setFont(font)
+        self.algorithm_combo.currentTextChanged.connect(self.algorithm_changed)
+
+        self.input_label = QLabel("Ingrese el texto:")
+        self.input_label.setFont(font)
+
+        self.input_text = QLineEdit()
+        self.input_text.setFont(font)
+
+        self.encrypt_button = QPushButton("Cifrar/Hashear")
+        self.encrypt_button.setFont(font)
+        self.encrypt_button.clicked.connect(self.encrypt_text)
+
+        self.decrypt_button = QPushButton("Descifrar")
+        self.decrypt_button.setFont(font)
+        self.decrypt_button.clicked.connect(self.decrypt_text)
+        self.decrypt_button.setEnabled(False)
+
+        # Área de visualización
+        self.visualization_label = QLabel("Visualización:")
+        self.visualization_label.setFont(font)
+
+        self.visualization_text = QTextEdit()
+        self.visualization_text.setReadOnly(True)
+        self.visualization_text.setFont(QFont('Consolas', 12))
+        self.visualization_text.setStyleSheet("background-color: #2d2d2d; color: #dcdcdc;")
+
+        # Gráfico
+        self.graph_widget = pg.PlotWidget()
+        self.graph_widget.setBackground('#1e1e1e')
+        self.graph_widget.showGrid(x=True, y=True)
+        self.graph_widget.setLabel('left', 'Frecuencia')
+        self.graph_widget.setLabel('bottom', 'Valor Byte')
+
+        # Layouts
+        main_layout = QVBoxLayout()
+        top_layout = QHBoxLayout()
+        input_layout = QVBoxLayout()
+        button_layout = QHBoxLayout()
+
+        # Añadir widgets a los layouts
+        input_layout.addWidget(self.algorithm_label)
+        input_layout.addWidget(self.algorithm_combo)
+        input_layout.addWidget(self.input_label)
+        input_layout.addWidget(self.input_text)
+
+        button_layout.addWidget(self.encrypt_button)
+        button_layout.addWidget(self.decrypt_button)
+
+        input_layout.addLayout(button_layout)
+
+        top_layout.addLayout(input_layout)
+        top_layout.addWidget(self.visualization_label)
+        top_layout.addWidget(self.visualization_text)
+
+        main_layout.addLayout(top_layout)
+        main_layout.addWidget(self.graph_widget)
+
+        # Widget central
+        central_widget = QWidget()
+        central_widget.setLayout(main_layout)
+        self.setCentralWidget(central_widget)
+
+        # Variables de estado
+        self.current_algorithm = "AES"
+        self.encrypted_data = None
+        self.symmetric_key = None
+        self.iv = None
+        self.private_key = None
+        self.public_key = None
+
+    def algorithm_changed(self, text):
+        self.current_algorithm = text
+        self.visualization_text.clear()
+        self.input_text.clear()
+        self.graph_widget.clear()
+        self.decrypt_button.setEnabled(False)
+
+    def encrypt_text(self):
+        plain_text = self.input_text.text()
+        if not plain_text:
+            QMessageBox.warning(self, "Advertencia", "Por favor, ingrese un texto para cifrar/hashear.")
+            return
+
+        if self.current_algorithm in ["AES", "DES", "Blowfish", "ChaCha20"]:
+            self.symmetric_encrypt(plain_text)
+        elif self.current_algorithm == "RSA":
+            self.asymmetric_encrypt(plain_text)
+        elif self.current_algorithm in ["SHA-256", "SHA-1", "MD5"]:
+            self.hash_text(plain_text)
+
+    def decrypt_text(self):
+        if self.current_algorithm in ["AES", "DES", "Blowfish", "ChaCha20"]:
+            self.symmetric_decrypt()
+        elif self.current_algorithm == "RSA":
+            self.asymmetric_decrypt()
+
+    def symmetric_encrypt(self, plain_text):
+        # Generar clave y IV según el algoritmo
+        if self.current_algorithm == "AES":
+            self.symmetric_key = os.urandom(32)  # 256 bits
+            self.iv = os.urandom(16)  # 128 bits
+            algorithm = algorithms.AES(self.symmetric_key)
+            mode = modes.CFB(self.iv)
+        elif self.current_algorithm == "DES":
+            self.symmetric_key = os.urandom(8)  # 64 bits
+            self.iv = os.urandom(8)  # 64 bits
+            algorithm = algorithms.TripleDES(self.symmetric_key)
+            mode = modes.CFB(self.iv)
+        elif self.current_algorithm == "Blowfish":
+            self.symmetric_key = os.urandom(16)  # 128 bits
+            self.iv = os.urandom(8)  # 64 bits
+            algorithm = algorithms.Blowfish(self.symmetric_key)
+            mode = modes.CFB(self.iv)
+        elif self.current_algorithm == "ChaCha20":
+            self.symmetric_key = os.urandom(32)  # 256 bits
+            self.iv = os.urandom(16)  # 128 bits
+            algorithm = algorithms.ChaCha20(self.symmetric_key, self.iv)
+            mode = None  # ChaCha20 no usa modo
+
+        if self.current_algorithm != "ChaCha20":
+            cipher = Cipher(algorithm, mode)
+        else:
+            cipher = Cipher(algorithm, mode=None)
+
+        encryptor = cipher.encryptor()
+        self.encrypted_data = encryptor.update(plain_text.encode('utf-8')) + encryptor.finalize()
+        self.visualization_text.append("Texto en claro: " + plain_text)
+        self.visualization_text.append("Texto cifrado: " + self.encrypted_data.hex())
+        self.visualize_security(self.encrypted_data)
+        self.decrypt_button.setEnabled(True)
+
+    def symmetric_decrypt(self):
+        if not self.symmetric_key or not self.iv:
+            QMessageBox.warning(self, "Advertencia", "No hay datos para descifrar.")
+            return
+
+        if self.current_algorithm == "AES":
+            algorithm = algorithms.AES(self.symmetric_key)
+            mode = modes.CFB(self.iv)
+        elif self.current_algorithm == "DES":
+            algorithm = algorithms.TripleDES(self.symmetric_key)
+            mode = modes.CFB(self.iv)
+        elif self.current_algorithm == "Blowfish":
+            algorithm = algorithms.Blowfish(self.symmetric_key)
+            mode = modes.CFB(self.iv)
+        elif self.current_algorithm == "ChaCha20":
+            algorithm = algorithms.ChaCha20(self.symmetric_key, self.iv)
+            mode = None
+
+        if self.current_algorithm != "ChaCha20":
+            cipher = Cipher(algorithm, mode)
+        else:
+            cipher = Cipher(algorithm, mode=None)
+
+        decryptor = cipher.decryptor()
+        try:
+            decrypted_data = decryptor.update(self.encrypted_data) + decryptor.finalize()
+            decrypted_text = decrypted_data.decode('utf-8')
+            self.visualization_text.append("Texto descifrado: " + decrypted_text)
+        except Exception as e:
+            QMessageBox.critical(self, "Error", "No se pudo descifrar el texto.")
+
+    def asymmetric_encrypt(self, plain_text):
+        if not self.private_key or not self.public_key:
+            self.private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+            self.public_key = self.private_key.public_key()
+        self.encrypted_data = self.public_key.encrypt(
+            plain_text.encode('utf-8'),
+            asym_padding.OAEP(
+                mgf=asym_padding.MGF1(algorithm=hashes.SHA256()),
+                algorithm=hashes.SHA256(),
+                label=None
+            )
+        )
+        self.visualization_text.append("Texto en claro: " + plain_text)
+        self.visualization_text.append("Texto cifrado: " + self.encrypted_data.hex())
+        self.visualize_security(self.encrypted_data)
+        self.decrypt_button.setEnabled(True)
+
+    def asymmetric_decrypt(self):
+        try:
+            decrypted_data = self.private_key.decrypt(
+                self.encrypted_data,
+                asym_padding.OAEP(
+                    mgf=asym_padding.MGF1(algorithm=hashes.SHA256()),
+                    algorithm=hashes.SHA256(),
+                    label=None
+                )
+            )
+            decrypted_text = decrypted_data.decode('utf-8')
+            self.visualization_text.append("Texto descifrado: " + decrypted_text)
+        except Exception as e:
+            QMessageBox.critical(self, "Error", "No se pudo descifrar el texto.")
+
+    def hash_text(self, plain_text):
+        if self.current_algorithm == "SHA-256":
+            digest = hashes.Hash(hashes.SHA256())
+        elif self.current_algorithm == "SHA-1":
+            digest = hashes.Hash(hashes.SHA1())
+        else:
+            digest = hashes.Hash(hashes.MD5())
+        digest.update(plain_text.encode('utf-8'))
+        hashed_data = digest.finalize()
+        self.visualization_text.append("Texto en claro: " + plain_text)
+        self.visualization_text.append("Hash generado (" + self.current_algorithm + "): " + hashed_data.hex())
+        self.visualize_security(hashed_data, is_hash=True)
+
+    def visualize_security(self, data, is_hash=False):
+        self.graph_widget.clear()
+        byte_values = [b for b in data]
+        byte_counts = collections.Counter(byte_values)
+        total_bytes = len(byte_values)
+        frequencies = [byte_counts.get(i, 0) / total_bytes for i in range(256)]
+        x_axis = list(range(256))
+
+        bar_graph = pg.BarGraphItem(x=x_axis, height=frequencies, width=0.6, brush='g')
+        self.graph_widget.addItem(bar_graph)
+        entropy = self.calculate_entropy(frequencies)
+        self.visualization_text.append(f"Entropía: {entropy:.4f} bits por byte")
+        if entropy > 7.5:
+            self.visualization_text.append("El nivel de entropía es alto. El texto cifrado/hash es fuerte.")
+        else:
+            self.visualization_text.append("El nivel de entropía es bajo. El texto cifrado/hash es débil.")
+
+    def calculate_entropy(self, frequencies):
+        entropy = 0
+        for freq in frequencies:
+            if freq > 0:
+                entropy -= freq * math.log2(freq)
+        return entropy * 8  # bits por byte
+
+def main():
+    app = QApplication(sys.argv)
+    window = CryptoVisualizer()
+    window.show()
+    sys.exit(app.exec_())
+
+if __name__ == '__main__':
+    main()
+
+
